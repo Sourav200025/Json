@@ -1,8 +1,0 @@
-{
-  "name": "Example",
-  "status": "success",
-  "data": {
-    "id": 123,
-    "message": "Hello World"
-  }
-}
