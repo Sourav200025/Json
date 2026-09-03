@@ -1,93 +1,69 @@
 require('dotenv').config();
 const express = require('express');
-const { google } = require('googleapis');
+const path = require('path');
+const admin = require('firebase-admin');
 
+// ==========================================
+// 1. FIREBASE ADMIN INITIALIZATION
+// ==========================================
+// This MUST happen before we require your 'api.js' router so that 
+// the database (db = admin.firestore()) connects successfully.
+try {
+  if (!admin.apps.length) {
+    // Note: Render uses environment variables for credentials. 
+    // If you have a serviceAccountKey.json file, you would load it like this:
+    // const serviceAccount = require('./serviceAccountKey.json');
+    // admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+    
+    // Standard initialization (assumes GOOGLE_APPLICATION_CREDENTIALS is set)
+    admin.initializeApp();
+    console.log("🔥 Firebase Admin connected successfully.");
+  }
+} catch (error) {
+  console.error("❌ Firebase Admin Initialization Error:", error.message);
+}
+
+// ==========================================
+// 2. EXPRESS APP SETUP
+// ==========================================
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 1. Initialize the OAuth2 Client
-const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  process.env.GOOGLE_REDIRECT_URI
-);
+// Middleware to handle JSON and URL-encoded data requests
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Define the scopes (permissions) your app needs. 
-// This example uses Google Drive read-only access.
-const SCOPES = ['https://www.googleapis.com/auth/drive.readonly'];
+// Tell Express to serve static files from the current directory
+app.use(express.static(__dirname));
 
-// 2. Route: Generate Google Login URL
-app.get('/auth', (req, res) => {
-  const authorizationUrl = oauth2Client.generateAuthUrl({
-    access_type: 'offline', // Requests a Refresh Token
-    prompt: 'consent',      // Forces the consent screen to ensure refresh token is provided
-    scope: SCOPES,
-  });
-  
-  // Redirect the user to Google's login page
-  res.redirect(authorizationUrl);
+// ==========================================
+// 3. FRONTEND ROUTE (UI)
+// ==========================================
+// 🚨 This sends your Frosted Aurora UI when someone visits your main link.
+// URL: https://api-nddg.onrender.com/
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// 3. Route: Handle the Google Callback
-app.get('/oauth2callback', async (req, res) => {
-  const { code } = req.query; // Google sends an authorization code in the URL
-  
-  if (!code) {
-    return res.status(400).send('Authorization code missing');
-  }
+// ==========================================
+// 4. BACKEND API ROUTES
+// ==========================================
+// Import the api.js file we fixed in the previous step
+const apiRoutes = require('./api'); 
 
-  try {
-    // Exchange the authorization code for access and refresh tokens
-    const { tokens } = await oauth2Client.getToken(code);
-    
-    // Set the credentials for the Google API client
-    oauth2Client.setCredentials(tokens);
-    
-    // Note: In a production app, you should save these tokens to a database 
-    // associated with the logged-in user so you don't force them to log in every time.
-    console.log('Tokens acquired:', tokens);
+// Mount the API routes to the server.
+// Because the HTML file claims the '/' route above, you MUST use your 
+// explicit endpoints for making API calls. 
+//
+// Examples of your live endpoints:
+// 👉 Payment: https://api-nddg.onrender.com/api-pay?token=...&paytoNumber=...&amount=...
+// 👉 Balance: https://api-nddg.onrender.com/balance?token=...
+// 👉 Verify:  https://api-nddg.onrender.com/verify?token=...&number=...
+app.use('/', apiRoutes);
 
-    res.send(`
-      <h1>Authentication Successful!</h1>
-      <p>Your app is now connected to Google.</p>
-      <a href="/api/drive">Click here to test a Google Drive API Call</a>
-    `);
-  } catch (error) {
-    console.error('Error retrieving access token:', error);
-    res.status(500).send('Authentication failed');
-  }
-});
-
-// 4. Route: Make an Authenticated API Request
-app.get('/api/drive', async (req, res) => {
-  try {
-    // Initialize the Drive API v3, passing the authenticated oauth2Client
-    const drive = google.drive({ version: 'v3', auth: oauth2Client });
-    
-    // Call the API: List the 10 most recently modified files
-    const response = await drive.files.list({
-      pageSize: 10,
-      fields: 'nextPageToken, files(id, name, mimeType)',
-    });
-    
-    const files = response.data.files;
-    
-    if (files.length === 0) {
-      res.send('No files found.');
-    } else {
-      res.json({
-        message: 'API Call Successful!',
-        files: files
-      });
-    }
-  } catch (error) {
-    console.error('API Error:', error.message);
-    res.status(500).send('Failed to fetch data from Google APIs. Make sure you authenticated via /auth first.');
-  }
-});
-
-// Start the Server
+// ==========================================
+// 5. START SERVER
+// ==========================================
 app.listen(PORT, () => {
-  console.log(`Server is running!`);
-  console.log(`Step 1: Go to http://localhost:${PORT}/auth to log in.`);
+  console.log(`🚀 Server is running on port ${PORT}`);
 });
