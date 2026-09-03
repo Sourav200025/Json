@@ -2,15 +2,7 @@ const router = require('express').Router();
 const admin = require('firebase-admin');
 const axios = require('axios');
 
-// Initialize Firebase Admin (Only do this ONCE in your main server file, 
-// or ensure it doesn't re-initialize if already done)
-if (!admin.apps.length) {
-  const serviceAccount = require('./serviceAccountKey.json'); // Path to your key
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
-  });
-}
-
+// Get the Firestore instance (Initialized globally in server.js)
 const db = admin.firestore();
 
 // Environment Variables
@@ -18,15 +10,15 @@ const BOT_TOKEN = process.env.BOT_TOKEN || "8280911898:AAFDTVyHxSbzP_fUGicuAyP-K
 const ADMIN_TG_ID = process.env.ADMIN_TG_ID;
 
 /**
- * Helper to send Telegram Messages[span_1](start_span)[span_1](end_span)
+ * Helper to send Telegram Messages
  */
 async function sendTG(tg_id, text) {
   if (!tg_id) return;
   try {
-    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+    await axios.post(`https://telegram.org{BOT_TOKEN}/sendMessage`, {
       chat_id: tg_id,
       text: text,
-      parse_mode: 'HTML' // Changed to HTML to match your frontend style
+      parse_mode: 'HTML'
     }, { timeout: 8000 });
   } catch (e) {
     console.error('TG Error:', e.message);
@@ -34,7 +26,7 @@ async function sendTG(tg_id, text) {
 }
 
 /**
- * Main Payment Processor[span_2](start_span)[span_2](end_span)
+ * Main Payment Processor
  */
 async function processPayment(req, res, query) {
   try {
@@ -123,7 +115,7 @@ async function processPayment(req, res, query) {
     const dObj = new Date(); 
     const tStamp = `${('0'+dObj.getDate()).slice(-2)}-${('0'+(dObj.getMonth()+1)).slice(-2)}-${dObj.getFullYear()} ${('0'+dObj.getHours()).slice(-2)}:${('0'+dObj.getMinutes()).slice(-2)}:${('0'+dObj.getSeconds()).slice(-2)}`;
 
-    // 5. Send API Response[span_3](start_span)[span_3](end_span)
+    // 5. Send API Response
     res.json({
       status: 'success',
       message: 'Payment successful',
@@ -139,7 +131,7 @@ async function processPayment(req, res, query) {
       timestamp: tStamp
     });
 
-    // 6. INSTANT NOTIFICATIONS[span_4](start_span)[span_4](end_span)
+    // 6. INSTANT NOTIFICATIONS
     if (senderData.telegramUid) {
       const sendAlert = `<b>💸 Amount Sent Successfully</b>\n━━━━━━━━━━━━━━━━━━\n 🆔 <b>Receiver :</b> <code>${receiverData.phone}</code>\n ⚡️ <b>Amount:</b> ₹${amt.toFixed(1)}\n 👩‍💻 <b>Method:</b> API\n 💰 <b>Updated Balance:</b> <code>₹${sNewBal.toFixed(1)}</code>\n━━━━━━━━━━━━━━━━━━\n🚀 Payment has been securely debited!`;
       sendTG(senderData.telegramUid, sendAlert);
@@ -159,11 +151,11 @@ async function processPayment(req, res, query) {
   }
 }
 
-// Routes[span_5](start_span)[span_5](end_span)
+// Routes
 router.get('/', (req, res) => processPayment(req, res, req.query));
 router.get('/api-pay', (req, res) => processPayment(req, res, req.query));
 
-// Balance Check[span_6](start_span)[span_6](end_span)
+// Balance Check
 router.get('/balance', async (req, res) => {
   try {
     const { key, token } = req.query;
@@ -181,7 +173,7 @@ router.get('/balance', async (req, res) => {
   }
 });
 
-// Verify Number[span_7](start_span)[span_7](end_span)
+// Verify Number
 router.get('/verify', async (req, res) => {
   try {
     const { key, token, number, mobile } = req.query;
@@ -206,4 +198,3 @@ router.get('/verify', async (req, res) => {
 });
 
 module.exports = router;
-
