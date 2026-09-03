@@ -2,30 +2,47 @@ const express = require('express');
 const cors = require('cors');
 const admin = require('firebase-admin');
 
-// 1. Initialize Firebase Admin globally at application startup
+// Initialize Firebase Admin safely using separated environment variables
 try {
-  const serviceAccount = require('./serviceAccountKey.json');
+  let credentialConfig;
+  
+  if (process.env.FB_PRIVATE_KEY && process.env.FB_CLIENT_EMAIL && process.env.FB_PROJECT_ID) {
+    // Production Cloud Setup (Render)
+    // Automatically repairs corrupted or escaped newline strings from web dashboards
+    const formattedPrivateKey = process.env.FB_PRIVATE_KEY.replace(/\\n/g, '\n');
+    
+    credentialConfig = admin.credential.cert({
+      projectId: process.env.FB_PROJECT_ID,
+      clientEmail: process.env.FB_CLIENT_EMAIL,
+      privateKey: formattedPrivateKey,
+    });
+    console.log("🔥 Firebase Admin initialized via explicit cloud variables.");
+  } else {
+    // Local Fallback Setup for your computer
+    const serviceAccount = require('./serviceAccountKey.json');
+    credentialConfig = admin.credential.cert(serviceAccount);
+    console.log("🔥 Firebase Admin initialized via local JSON file.");
+  }
+
   admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
+    credential: credentialConfig
   });
-  console.log("🔥 Firebase Admin initialized successfully.");
 } catch (error) {
   console.error("❌ Failed to initialize Firebase Admin:", error.message);
-  process.exit(1); // Stop the server if credentials are bad
+  process.exit(1);
 }
 
 const app = express();
 
-// 2. Middleware Configuration
+// Middleware Configuration
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 3. Register API Router
+// Register API Router
 const apiRoutes = require('./api');
-app.use('/', apiRoutes); // Routes will be available at root /api-pay, /balance, etc.
+app.use('/', apiRoutes);
 
-// 4. Start Server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server is running on port ${PORT}`);
