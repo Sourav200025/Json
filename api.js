@@ -15,7 +15,8 @@ const ADMIN_TG_ID = process.env.ADMIN_TG_ID;
 async function sendTG(tg_id, text) {
   if (!tg_id) return;
   try {
-    await axios.post(`https://telegram.org{BOT_TOKEN}/sendMessage`, {
+    // FIX: Corrected Telegram API URL syntax
+    await axios.post(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       chat_id: tg_id,
       text: text,
       parse_mode: 'HTML'
@@ -34,13 +35,15 @@ async function processPayment(req, res, query) {
     const to = query.to || query.paytoNumber;
     const amount = query.amount || query.amt;
     const comment = query.comment || '';
+    const txn = query.txn || ''; // Fetch optional client-provided transaction ID
     
     // 1. Validation
     if (!key) return res.status(400).json({ status: 'error', message: 'API key required' });
     if (!to) return res.status(400).json({ status: 'error', message: 'Receiver number required' });
     if (!amount) return res.status(400).json({ status: 'error', message: 'Amount required' });
 
-    const amt = parseFloat(amount);
+    // FIX: Lock amount to 2 decimal places to prevent JS floating point errors
+    const amt = Math.round(parseFloat(amount) * 100) / 100;
     if (isNaN(amt) || amt < 1) {
       return res.status(400).json({ status: 'error', message: 'Invalid amount. Minimum ₹1' });
     }
@@ -62,6 +65,14 @@ async function processPayment(req, res, query) {
 
     if (senderData.phone === receiverData.phone) {
       return res.status(400).json({ status: 'error', message: 'Cannot transfer to self' });
+    }
+
+    // FIX: Idempotency Check (Prevent duplicate charges)
+    if (txn) {
+      const existingTxn = await db.collection('transactions').doc(txn).get();
+      if (existingTxn.exists) {
+        return res.status(409).json({ status: 'error', message: 'Already Claimed! This Transaction ID is used.' });
+      }
     }
 
     let txId = "";
@@ -91,7 +102,7 @@ async function processPayment(req, res, query) {
       });
 
       // Create transaction record
-      const txnRef = db.collection('transactions').doc();
+      const txnRef = txn ? db.collection('transactions').doc(txn) : db.collection('transactions').doc();
       txId = txnRef.id;
       
       t.set(txnRef, {
@@ -133,13 +144,18 @@ async function processPayment(req, res, query) {
 
     // 6. INSTANT NOTIFICATIONS
     if (senderData.telegramUid) {
-      const sendAlert = `<b>💸 Amount Sent Successfully</b>\n━━━━━━━━━━━━━━━━━━\n 🆔 <b>Receiver :</b> <code>${receiverData.phone}</code>\n ⚡️ <b>Amount:</b> ₹${amt.toFixed(1)}\n 👩‍💻 <b>Method:</b> API\n 💰 <b>Updated Balance:</b> <code>₹${sNewBal.toFixed(1)}</code>\n━━━━━━━━━━━━━━━━━━\n🚀 Payment has been securely debited!`;
+      const sendAlert = `<b>💸 Amount Sent Successfully</b>\n━━━━━━━━━━━━━━━━━━\n 🆔 <b>Receiver :</b> <code>${receiverData.phone}</code>\n ⚡️ <b>Amount:</b> ₹${amt.toFixed(2)}\n 👩‍💻 <b>Method:</b> API\n 💰 <b>Updated Balance:</b> <code>₹${sNewBal.toFixed(2)}</code>\n━━━━━━━━━━━━━━━━━━\n🚀 Payment has been securely debited!`;
       sendTG(senderData.telegramUid, sendAlert);
     }
 
     if (receiverData.telegramUid) {
-      const rcvAlert = `<b>💸 Amount Credited Successfully</b>\n━━━━━━━━━━━━━━━━━━\n 🆔 <b>Sender :</b> <code>${senderData.phone}</code>\n ⚡️ <b>Amount:</b> ₹${amt.toFixed(1)}\n 👩‍💻 <b>Method:</b> API\n 💰 <b>Updated Balance:</b> <code>₹${rNewBal.toFixed(1)}</code>\n━━━━━━━━━━━━━━━━━━\n🚀 Payment has been securely Credited!`;
+      const rcvAlert = `<b>💸 Amount Credited Successfully</b>\n━━━━━━━━━━━━━━━━━━\n 🆔 <b>Sender :</b> <code>${senderData.phone}</code>\n ⚡️ <b>Amount:</b> ₹${amt.toFixed(2)}\n 👩‍💻 <b>Method:</b> API\n 💰 <b>Updated Balance:</b> <code>₹${rNewBal.toFixed(2)}</code>\n━━━━━━━━━━━━━━━━━━\n🚀 Payment has been securely Credited!`;
       sendTG(receiverData.telegramUid, rcvAlert);
+    }
+
+    // FIX: Restored the Admin Alert
+    if (ADMIN_TG_ID) {
+      sendTG(ADMIN_TG_ID, `<b>⚡ API TRANSACTION</b>\n 💰 <b>Amount :</b> ₹${amt.toFixed(2)}\n 👤 <b>From :</b> ${senderData.name} (${senderData.phone})\n 👤 <b>To :</b> ${receiverData.name} (${receiverData.phone})\n 💬 <b>Comment :</b> ${comment || '—'}\n 🏷️ <b>Txn ID :</b> <code>${txId.toUpperCase()}</code>`);
     }
 
   } catch (e) {
